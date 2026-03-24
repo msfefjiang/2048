@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>2048 — 5×5</title>
+  <style>
+    :root {
+      --bg: #f0f3f7;
+      --text: #2b2f33;
+      --panel: rgba(255,255,255,0.75);
+      --panel-dark: rgba(22,24,28,0.6);
+      --accent: #6c8cff;
+      --accent-2: #12c2e9;
+      --accent-3: #c471ed;
+      --accent-4: #f64f59;
+      --cell: #d9dee7;
+      --shadow: 0 20px 40px rgba(0,0,0,0.15);
+      --radius: 16px;
+      --pad: 12px;           /* 棋盘内边距 */
+      --size: 5;             /* 棋盘尺寸（由 JS 同步） */
+    }
+
+    [data-theme="dark"] {
+      --bg: #121417;
+      --text: #e6e8ea;
+      --panel: rgba(25,28,32,0.65);
+      --panel-dark: rgba(18,20,24,0.7);
+      --cell: #1f2329;
+      --shadow: 0 20px 40px rgba(0,0,0,0.35);
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 10% 10%, rgba(18,194,233,0.25), transparent 55%),
+        radial-gradient(900px 700px at 90% 20%, rgba(196,113,237,0.22), transparent 60%),
+        radial-gradient(1000px 800px at 20% 90%, rgba(246,79,89,0.18), transparent 60%),
+        linear-gradient(135deg, #eef2f7 0%, #e8edf5 100%);
+      background-attachment: fixed;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans SC', 'Microsoft YaHei UI', 'PingFang SC', 'Hiragino Sans GB', 'Heiti SC', sans-serif;
+    }
+
+    .wrap {
+      max-width: 720px;
+      margin: 40px auto;
+      padding: 24px;
+      border-radius: var(--radius);
+      background: var(--panel);
+      backdrop-filter: saturate(1.2) blur(10px);
+      box-shadow: var(--shadow);
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      font-size: 28px;
+      margin: 0;
+      letter-spacing: 0.5px;
+      background: linear-gradient(90deg, var(--accent-2), var(--accent-3), var(--accent-4));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .scoreboard { display: flex; gap: 12px; align-items: stretch; }
+
+    .scorebox {
+      min-width: 120px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      background: var(--panel-dark);
+      color: var(--text);
+      text-align: center;
+      backdrop-filter: blur(6px);
+    }
+    .scorebox .label { font-size: 12px; opacity: 0.85; }
+    .scorebox .value { font-size: 20px; font-weight: 700; }
+
+    .controls { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 18px; }
+
+    button {
+      appearance: none; border: none; border-radius: 12px; padding: 10px 14px;
+      font-size: 14px; cursor: pointer; color: #fff;
+      background: linear-gradient(135deg, var(--accent), #4c6bff);
+      box-shadow: 0 10px 20px rgba(76,107,255,0.25);
+      transition: transform 0.08s ease, filter 0.2s ease;
+    }
+    button.secondary { background: linear-gradient(135deg, #616875, #454b58); box-shadow: 0 10px 20px rgba(69,75,88,0.25); }
+    button:disabled { cursor: not-allowed; filter: grayscale(40%); opacity: 0.7; }
+    button:active { transform: translateY(1px); }
+
+    .toggle { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--panel-dark); color: var(--text); user-select: none; }
+
+    .board {
+      position: relative;
+      width: 100%; max-width: 520px; aspect-ratio: 1 / 1; margin: 0 auto;
+      border-radius: 22px; padding: var(--pad);
+      background: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.14));
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25);
+      overflow: hidden;
+    }
+
+    /* 网格层明确尺寸，避免在某些 Edge 版本上折叠成细线 */
+    .grid {
+      position: absolute;
+      top: var(--pad); right: var(--pad); bottom: var(--pad); left: var(--pad);
+      width: calc(100% - (var(--pad) * 2));
+      height: calc(100% - (var(--pad) * 2));
+      display: grid;
+      grid-template-columns: repeat(var(--size), 1fr);
+      grid-template-rows: repeat(var(--size), 1fr);
+      gap: 12px;
+    }
+    #gridBg { z-index: 1; }
+    #gridTiles { z-index: 2; }
+
+    .cell {
+      background: var(--cell);
+      border-radius: 14px;
+      box-shadow: inset 0 6px 10px rgba(255,255,255,0.35), inset 0 -6px 12px rgba(0,0,0,0.06);
+    }
+
+    .tile {
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: clamp(16px, 5.2vw, 30px);
+      border-radius: 14px; color: #ffffff; box-shadow: 0 10px 20px rgba(0,0,0,0.15);
+      user-select: none; transition: transform 120ms ease;
+    }
+    .tile.pop { animation: pop 180ms ease; }
+    .tile.new { animation: appear 160ms ease; }
+    @keyframes pop { 0%{transform:scale(1);} 50%{transform:scale(1.08);} 100%{transform:scale(1);} }
+    @keyframes appear { 0%{transform:scale(0.4);opacity:0;} 100%{transform:scale(1);opacity:1;} }
+
+    .legend { margin-top: 16px; opacity: 0.85; font-size: 13px; }
+
+    .overlay { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.35); border-radius: 22px; z-index: 10; }
+    .overlay.show { display: flex; }
+    .overlay .dialog { background: var(--panel); color: var(--text); border-radius: 18px; padding: 20px 18px; text-align: center; width: min(420px, 85%); box-shadow: var(--shadow); }
+    .dialog h2 { margin: 0 0 10px; font-size: 20px; }
+    .dialog p { margin: 0 0 16px; }
+    .dialog .row { display: flex; gap: 8px; justify-content: center; }
+
+    footer { margin-top: 22px; font-size: 12px; opacity: 0.7; text-align: center; }
+
+    @media (max-width: 480px) {
+      .wrap { margin: 18px; padding: 16px; }
+      .scorebox { min-width: 100px; }
+      .board { max-width: 90vw; }
+      :root { --pad: 10px; }
+      .grid { gap: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap" id="app">
+    <header>
+      <h1>2048</h1>
+      <div class="scoreboard">
+        <div class="scorebox">
+          <div class="label">得分</div>
+          <div class="value" id="score">0</div>
+        </div>
+        <div class="scorebox">
+          <div class="label">最高分</div>
+          <div class="value" id="best">0</div>
+        </div>
+      </div>
+    </header>
+
+    <div class="controls">
+      <button id="newGame">新开局</button>
+      <button id="undo" class="secondary" disabled>悔棋 (U)</button>
+      <label class="toggle"><input type="checkbox" id="themeToggle" /> <span>深色主题</span></label>
+    </div>
+
+    <div class="board" id="board" tabindex="0" aria-label="2048棋盘">
+      <div class="overlay" id="overlay">
+        <div class="dialog">
+          <h2 id="overlayTitle">提示</h2>
+          <p id="overlayText">——</p>
+          <div class="row">
+            <button id="continueBtn">继续游戏</button>
+            <button id="restartBtn" class="secondary">重新开始</button>
+          </div>
+        </div>
+      </div>
+      <div class="grid" id="gridBg" aria-hidden="true"></div>
+      <div class="grid" id="gridTiles"></div>
+    </div>
+
+    <div class="legend">操作：方向键 / WASD 移动，U 悔棋，N 新开局；支持触控滑动。</div>
+    <footer>单文件版，支持 Edge 直接打开；本地存储按棋盘尺寸隔离；胜利弹窗仅首次出现。</footer>
+  </div>
+
+  <script>
+    'use strict';
+
+    // ===== 参数：只需改这一行即可切换 4×4/5×5，且存储自动分开 =====
+    const SIZE = 5;                    // ← 改为 4 即切换到 4×4
+    const WIN_TARGET = 2048;           // 胜利目标（可改更大）
+    const STORAGE_VERSION = 'v3';      // 存储版本号（如需重置可改）
+    const STORAGE_NS = `size${SIZE}_${STORAGE_VERSION}`; // 尺寸命名空间
+    const LS_KEY_STATE = `msra_2048_state__${STORAGE_NS}`;
+    const LS_KEY_BEST  = `msra_2048_best__${STORAGE_NS}`;
+    const LS_KEY_THEME = `msra_2048_theme`; // 主题可共用，不区分尺寸
+
+    document.documentElement.style.setProperty('--size', String(SIZE));
+
+    const els = {
+      score: document.getElementById('score'),
+      best: document.getElementById('best'),
+      gridBg: document.getElementById('gridBg'),
+      gridTiles: document.getElementById('gridTiles'),
+      newGame: document.getElementById('newGame'),
+      undo: document.getElementById('undo'),
+      themeToggle: document.getElementById('themeToggle'),
+      overlay: document.getElementById('overlay'),
+      overlayTitle: document.getElementById('overlayTitle'),
+      overlayText: document.getElementById('overlayText'),
+      continueBtn: document.getElementById('continueBtn'),
+      restartBtn: document.getElementById('restartBtn'),
+      board: document.getElementById('board'),
+      app: document.getElementById('app'),
+      bestValue: 0,
+    };
+
+    let grid = createEmptyGrid();
+    let score = 0;
+    let hasWon = false;
+    let winPromptShown = false; // 只提示一次
+    let prevState = null;       // 一步悔棋
+
+    function initBgGrid() {
+      els.gridBg.innerHTML = '';
+      for (let i = 0; i < SIZE * SIZE; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        els.gridBg.appendChild(cell);
+      }
+    }
+
+    function createEmptyGrid() { return Array.from({ length: SIZE }, () => Array(SIZE).fill(0)); }
+    function cloneGrid(g) { return g.map(row => row.slice()); }
+
+    function randomEmptyCell(g) {
+      const empties = [];
+      for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) if (g[r][c] === 0) empties.push([r,c]);
+      if (empties.length === 0) return null;
+      return empties[Math.floor(Math.random() * empties.length)];
+    }
+
+    function addRandomTile(g) {
+      const pos = randomEmptyCell(g);
+      if (!pos) return false;
+      const [r, c] = pos;
+      g[r][c] = Math.random() < 0.10 ? 4 : 2;
+      return { r, c, value: g[r][c] };
+    }
+
+    function getTileColor(v) {
+      const map = {
+        2:   { bg: '#eee4da', fg: '#776e65' },
+        4:   { bg: '#ede0c8', fg: '#776e65' },
+        8:   { bg: '#f2b179', fg: '#f9f9f9' },
+        16:  { bg: '#f59563', fg: '#f9f9f9' },
+        32:  { bg: '#f67c5f', fg: '#fff' },
+        64:  { bg: '#f65e3b', fg: '#fff' },
+        128: { bg: '#edcf72', fg: '#fff' },
+        256: { bg: '#edcc61', fg: '#fff' },
+        512: { bg: '#edc850', fg: '#fff' },
+        1024:{ bg: '#edc53f', fg: '#fff' },
+        2048:{ bg: '#edc22e', fg: '#fff' },
+        4096:{ bg: '#3c3a32', fg: '#fff' },
+        8192:{ bg: '#2f2d27', fg: '#fff' },
+        16384:{ bg:'#26241f', fg: '#fff' },
+      };
+      return map[v] || { bg: '#2b2b2b', fg: '#fff' };
+    }
+
+    function updateScore(delta) {
+      score += delta;
+      els.score.textContent = score;
+      if (score > els.bestValue) {
+        els.bestValue = score;
+        els.best.textContent = els.bestValue;
+        try { localStorage.setItem(LS_KEY_BEST, String(els.bestValue)); } catch (_) {}
+      }
+    }
+
+    function saveState() {
+      try {
+        const payload = JSON.stringify({ grid, score, hasWon, winPromptShown });
+        localStorage.setItem(LS_KEY_STATE, payload);
+      } catch (_) {}
+    }
+
+    function loadState() {
+      try {
+        const best = localStorage.getItem(LS_KEY_BEST);
+        if (best) { els.bestValue = Number(best) || 0; els.best.textContent = els.bestValue; }
+        const data = localStorage.getItem(LS_KEY_STATE);
+        if (!data) return false;
+        const obj = JSON.parse(data);
+        if (!obj || !obj.grid) return false;
+        grid = obj.grid;
+        score = obj.score || 0;
+        hasWon = !!obj.hasWon;
+        winPromptShown = !!obj.winPromptShown;
+        els.score.textContent = score;
+        return true;
+      } catch (_) { return false; }
+    }
+
+    function render(newTileInfo=null, mergedPositions=[]) {
+      els.gridTiles.innerHTML = '';
+      for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+        const v = grid[r][c];
+        if (v === 0) continue;
+        const tile = document.createElement('div');
+        tile.className = 'tile';
+        tile.style.gridRowStart = r + 1;
+        tile.style.gridColumnStart = c + 1;
+        const { bg, fg } = getTileColor(v);
+        tile.style.background = bg; tile.style.color = fg; tile.textContent = v;
+        if (mergedPositions.some(p => p[0] === r && p[1] === c)) tile.classList.add('pop');
+        if (newTileInfo && newTileInfo.r === r && newTileInfo.c === c) tile.classList.add('new');
+        els.gridTiles.appendChild(tile);
+      }
+      els.undo.disabled = !prevState;
+      saveState();
+    }
+
+    function slideAndMergeLine(line, addScore=true) {
+      const filtered = line.filter(v => v !== 0);
+      let gained = 0; const mergedFlags = new Array(filtered.length).fill(false);
+      for (let i = 0; i < filtered.length - 1; i++) {
+        if (filtered[i] !== 0 && filtered[i] === filtered[i+1] && !mergedFlags[i] && !mergedFlags[i+1]) {
+          filtered[i] *= 2; filtered[i+1] = 0; mergedFlags[i] = true; gained += filtered[i];
+        }
+      }
+      const result = filtered.filter(v => v !== 0);
+      while (result.length < SIZE) result.push(0);
+      if (addScore && gained > 0) updateScore(gained);
+      return { line: result, gained };
+    }
+
+    function move(direction) {
+      const beforeGrid = cloneGrid(grid);
+      const beforeScore = score;
+      const wonBefore = hasWon;
+      const winPromptBefore = winPromptShown;
+      const mergedPositions = [];
+      let changed = false;
+
+      function setLine(r, c, values, isRow=true) { if (isRow) { for (let i=0;i<SIZE;i++) grid[r][i]=values[i]; } else { for (let i=0;i<SIZE;i++) grid[i][c]=values[i]; } }
+      function getLine(r, c, isRow=true) { return isRow ? grid[r].slice() : grid.map(row => row[c]); }
+
+      if (direction === 'left' || direction === 'right') {
+        for (let r = 0; r < SIZE; r++) {
+          let line = getLine(r, 0, true); const original = line.slice();
+          if (direction === 'right') line.reverse();
+          const { line: out } = slideAndMergeLine(line);
+          if (direction === 'right') out.reverse();
+          setLine(r, 0, out, true);
+          if (!arraysEqual(out, original)) changed = true;
+          for (let c = 0; c < SIZE; c++) if (out[c] !== 0 && out[c] !== original[c] && out[c] > original[c]) mergedPositions.push([r,c]);
+        }
+      } else if (direction === 'up' || direction === 'down') {
+        for (let c = 0; c < SIZE; c++) {
+          let line = getLine(0, c, false); const original = line.slice();
+          if (direction === 'down') line.reverse();
+          const { line: out } = slideAndMergeLine(line);
+          if (direction === 'down') out.reverse();
+          setLine(0, c, out, false);
+          if (!arraysEqual(out, original)) changed = true;
+          for (let r = 0; r < SIZE; r++) if (out[r] !== 0 && out[r] !== original[r] && out[r] > original[r]) mergedPositions.push([r,c]);
+        }
+      }
+
+      if (!changed) return { changed: false };
+
+      // 首次达到 WIN_TARGET 时弹一次提示；之后不再重复
+      if (!winPromptShown) {
+        let reached = false;
+        for (let r = 0; r < SIZE && !reached; r++) for (let c = 0; c < SIZE && !reached; c++) if (grid[r][c] >= WIN_TARGET) reached = true;
+        if (reached) { hasWon = true; winPromptShown = true; showOverlay('你赢了！', `恭喜合成 ${WIN_TARGET}，是否继续挑战更大的数字？`); }
+      }
+
+      const newTileInfo = addRandomTile(grid);
+      prevState = { grid: beforeGrid, score: beforeScore, hasWon: wonBefore, winPromptShown: winPromptBefore };
+      render(newTileInfo, mergedPositions);
+
+      if (isGameOver()) showOverlay('游戏结束', '没有可移动的位置了~');
+      return { changed: true };
+    }
+
+    function arraysEqual(a, b) { if (!a || !b || a.length !== b.length) return false; for (let i=0;i<a.length;i++) if (a[i] !== b[i]) return false; return true; }
+
+    function isGameOver() {
+      for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) if (grid[r][c] === 0) return false;
+      for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) { const v = grid[r][c]; if (r+1 < SIZE && grid[r+1][c] === v) return false; if (c+1 < SIZE && grid[r][c+1] === v) return false; }
+      return true;
+    }
+
+    function showOverlay(title, text) { els.overlayTitle.textContent = title; els.overlayText.textContent = text; els.overlay.classList.add('show'); }
+    function hideOverlay() { els.overlay.classList.remove('show'); }
+
+    function newGame() {
+      grid = createEmptyGrid(); score = 0; hasWon = false; winPromptShown = false; prevState = null;
+      addRandomTile(grid); const info = addRandomTile(grid);
+      els.score.textContent = score; render(info); hideOverlay();
+    }
+
+    function undoOnce() {
+      if (!prevState) return;
+      grid = cloneGrid(prevState.grid); score = prevState.score; hasWon = prevState.hasWon; winPromptShown = prevState.winPromptShown;
+      els.score.textContent = score; prevState = null; render();
+    }
+
+    window.addEventListener('keydown', (e) => {
+      const key = e.key.toLowerCase();
+      if (['arrowup','arrowdown','arrowleft','arrowright','w','a','s','d','u','n'].includes(key)) e.preventDefault();
+      if (key === 'arrowup' || key === 'w') move('up');
+      else if (key === 'arrowdown' || key === 's') move('down');
+      else if (key === 'arrowleft' || key === 'a') move('left');
+      else if (key === 'arrowright' || key === 'd') move('right');
+      else if (key === 'u') undoOnce();
+      else if (key === 'n') newGame();
+    });
+
+    let touchStart = null; let threshold = Math.max(12, Math.floor(window.innerWidth * 0.02));
+    window.addEventListener('resize', () => { threshold = Math.max(12, Math.floor(window.innerWidth * 0.02)); });
+    els.board.addEventListener('touchstart', (e) => { const t = e.touches[0]; touchStart = { x: t.clientX, y: t.clientY }; }, { passive: true });
+    els.board.addEventListener('touchend', (e) => {
+      if (!touchStart) return; const t = e.changedTouches[0]; const dx = t.clientX - touchStart.x; const dy = t.clientY - touchStart.y;
+      if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) return;
+      move(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+      touchStart = null;
+    }, { passive: true });
+
+    els.newGame.addEventListener('click', newGame);
+    els.undo.addEventListener('click', undoOnce);
+    els.continueBtn.addEventListener('click', hideOverlay);
+    els.restartBtn.addEventListener('click', () => { hideOverlay(); newGame(); });
+
+    try { const theme = localStorage.getItem(LS_KEY_THEME); if (theme === 'dark') { document.documentElement.setAttribute('data-theme','dark'); els.themeToggle.checked = true; } } catch (_) {}
+    els.themeToggle.addEventListener('change', () => { const isDark = els.themeToggle.checked; document.documentElement.setAttribute('data-theme', isDark ? 'dark' : ''); try { localStorage.setItem(LS_KEY_THEME, isDark ? 'dark' : 'light'); } catch (_) {} });
+
+    // 启动：不在加载时自动弹胜利提示；仅在 move() 首次达到时提示
+    initBgGrid();
+    if (!loadState()) newGame(); else { els.score.textContent = score; render(); }
+  </script>
+</body>
+</html>
