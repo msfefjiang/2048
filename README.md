@@ -25,4 +25,4 @@
 
 ## 许可
 
-MIT License
+GPL-3.0 License
